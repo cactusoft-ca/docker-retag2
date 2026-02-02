@@ -1,0 +1,92 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Describe commit
+        run: git describe --tags || echo "No tags found"
+
+      - name: Run gofmt
+        run: gofmt -l -s -w .
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -race -v ./...
+
+      - name: Build Linux binary
+        run: |
+          mkdir -p artifacts
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a \
+            -ldflags="-s -w" \
+            -o artifacts/docker-retag_linux_amd64 .
+
+      - name: Build Darwin binary
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -a \
+            -ldflags="-s -w" \
+            -o artifacts/docker-retag_darwin_amd64 .
+
+      - name: Install UPX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xz-utils wget
+          wget https://github.com/upx/upx/releases/download/v3.94/upx-3.94-amd64_linux.tar.xz
+          tar --strip=1 -xf upx-3.94-amd64_linux.tar.xz
+          sudo install upx /usr/bin
+
+      - name: Compress binaries
+        run: upx --best --ultra-brute artifacts/docker-retag*
+
+      - name: Copy Linux binary
+        run: cp artifacts/docker-retag_linux_amd64 artifacts/docker-retag
+
+      - name: Checksum binaries
+        run: sha256sum --binary --tag artifacts/docker-retag* | tee artifacts/checksums.txt
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-retag-artifacts
+          path: artifacts/
+
+  release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-retag-artifacts
+          path: artifacts
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/docker-retag_linux_amd64
+            artifacts/docker-retag_darwin_amd64
+            artifacts/docker-retag
+            artifacts/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

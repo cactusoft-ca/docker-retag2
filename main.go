@@ -75,15 +75,27 @@ func mainCmd(args []string) error {
 func login(repo string, username string, password string) (string, error) {
 	var (
 		client = http.DefaultClient
-		url    = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:" + repo + ":pull,push"
+		url    = "https://hub.docker.com/v2/users/login"
 	)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return "", err
 	}
 
-	req.SetBasicAuth(username, password)
+	// Authenticate using JSON payload
+	payload := map[string]string{
+		"username": username,	
+		"password": password,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req.Body = ioutil.NopCloser(bytes.NewReader(payloadBytes))
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
