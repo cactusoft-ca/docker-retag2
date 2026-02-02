@@ -21,6 +21,13 @@ jobs:
         with:
           go-version: "stable"
 
+      - name: Ensure go.mod exists
+        run: |
+          if [ ! -f go.mod ]; then
+            go mod init docker-retag2
+            go mod tidy
+          fi
+
       - name: Describe commit
         run: git describe --tags || echo "No tags found"
 
